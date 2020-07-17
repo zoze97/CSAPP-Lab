@@ -1,3 +1,6 @@
+//代码来自https://zhuanlan.zhihu.com/p/33846811
+//1.命令行参数的读取  2.读取文件并由计数函数计算次数  3.关闭文件
+
 #include "cachelab.h"
 #include<stdlib.h>
 #include<unistd.h>
@@ -5,56 +8,61 @@
 #include<limits.h>
 #include<getopt.h>
 #include<string.h> 
-int help_mode, verbose_mode, s, E, b, S,number_hits, number_miss, number_eviction;
-//S is the number of sets, E is the associativity, b is number of block bits
-char filename[1000];//The file name
-char buffer[1000];//The buffer of input
-typedef struct 
-{
-	int valid_bit, tag, stamp;//cold miss
+
+int help_mode, verbose_mode, S, E, b, S, number_miss, number_eviction
+
+char filename[1000];
+char buffer[1000];
+
+typedef struct
+{	
+	int valid_bit, tag, stamp;
 }cache_line;
 cache_line **cache = NULL;
+
 void update(unsigned int address)
 {
-	int max_stamp = INT_MIN, max_stamp_id = -1;
-	int  t_address, s_address;// The t value and s value of address
-	s_address = (address >> b) & ((-1U) >> (32 - s));//use bit manipulation to get s_address, -1U equals to INT_MAX
+	int min_stamp = INT_MAX, min_stamp_id = -1;
+	int t_address,s_address;
+	s_address = (address >> b) & ((-1U) >> (32 - s)); //利用与操作，获得s地址
 	t_address = address >> (s + b);
-	for(int i = 0; i < E; i++)//check whether there is a hit
-		if(cache[s_address][i].tag == t_address)//which means a hit
+	for(int i = 0; i < s; i++)
+	{
+		if(cache[s_address][i].tag == t_address)
 		{
-			//is_placed = 1;
-			cache[s_address][i].stamp = 0;//restart the time stamp control unit
+			cache[s_address][i].stamp = 0;
 			number_hits++;
-			//printf("hit\n");
-			return ;//just return now
+			return;
 		}
-	//to check whether is an empty line
-	for(int i = 0; i < E; i++)
+	}   //命中
+	
+	//空缓存不命中,找一个空缓存存
+	for(int i = 0; i < s; i++)
+	{
 		if(cache[s_address][i].valid_bit == 0)
 		{
 			cache[s_address][i].valid_bit = 1;
 			cache[s_address][i].tag = t_address;
 			cache[s_address][i].stamp = 0;
-			number_miss++;//compulsory miss
-			//printf("miss\n");
-			return;
 		}
-	//If there is not any empty line, then an eviction will occur
+	}
+	
 	number_eviction++;
 	number_miss++;
 	for(int i = 0; i < E; i++)
-		if(cache[s_address][i].stamp > max_stamp)
+	{
+		if(cache[s_address][i].stamp < min_stamp)
 		{
-			max_stamp = cache[s_address][i].stamp;
-			max_stamp_id = i;
+			min_stamp = cache[s_address][i].stamp;
+			min_stamp_id = i;
 		}
-	cache[s_address][max_stamp_id].tag = t_address;
-	cache[s_address][max_stamp_id].stamp = 0;
+	}
+	cache[s_address][min_stamp_id].tag = t_address;
+	cache[s_address][min_stamp_id].stamp = 0;
 	return;
 }
 
-void update_time(void)//update the time stamp of each cache line
+void update_time(void)  //更新时间戳
 {
 	for(int i = 0; i < S; i++)
 		for(int j = 0; j < E; j++)
@@ -62,66 +70,79 @@ void update_time(void)//update the time stamp of each cache line
 				cache[i][j].stamp++;
 }
 
-int main(int argc,char* argv[])
+//命令行输入自定义的缓存的规模，然后依次打开测试文件，初始化缓存，读取文件中的数据开始计数
+int main(int argc, char* argv[]) //argc参数个数 argv 路径+参数
 {
-	int opt, temp;//The getopt return value
-	char type;//type of a single trace record
-	unsigned int address;//address of memory
-	number_hits = number_miss = number_eviction = 0;//initialization
-	while(-1 != (opt = (getopt(argc, argv, "hvs:E:b:t:"))))
+	int opt,temp; //temp代表数据块的大小，本次实验中只在输入时使用
+	char type;
+	unsigned int address;
+	number_hits = number_miss = number_eviction = 0;
+	while(-1 != (opt = (getopt(argc, agrcv, "hvs:E:b:t:")))) //getopt返回-1时表示所有的选项被解析出，hv是第一个参数，s,E,b,t代表缓存的各个参数
 	{
 		switch(opt)
 		{
-			case 'h':help_mode = 1;
-					 break;
-			case 'v':verbose_mode = 1;
-					 break;
-			case 's':s = atoi(optarg);
-					 break;
-			case 'E':E = atoi(optarg);
-					 break;
-			case 'b':b = atoi(optarg);
-					 break;
-			case 't':strcpy(filename, optarg);
-					 break;
+			case 'h':help_mode == 1;
+					break;
+			case 'v':verbose_mode == 1;
+					break;
+			case 's':atoi(optarg);
+					break;
+			case 'E':atoi(optarg);
+					break;
+			case 'b':atoi(optarg);
+					break;
+			case 't':strcpy(filename,optarg)
+					break;
 		}
 	}
+	
 	if(help_mode == 1)
 	{
-		system("cat help_info");//"help_info" is a text file containing help information
+		system("cat help_info");
 		exit(0);
 	}
-	FILE* fp = fopen(filename,"r");
+	FILE *fp = fopen(filename,"r");
 	if(fp == NULL)
 	{
-		fprintf(stderr,"The File is wrong!\n");
+		fprintf(stderr,"the file is wrong!\n");
 		exit(-1);
 	}
-	S = (1 << s); // S equals to 2^s
-	cache = (cache_line**)malloc(sizeof(cache_line*) * S);
+	
+	//初始化 
+	S = (1 << s);
+	cache  = (cache_line**)malloc(sizeof(cache_line*) * S); //定义缓存每一行的大小
 	for(int i = 0; i < S; i++)
-		cache[i] = (cache_line*)malloc(sizeof(cache_line) * E);//Important! malloc each row of cache
+	{
+		cache[i] = (cache_line*)malloc(sizeof(cache_line) * E);
+	}
 	for(int i = 0; i < S; i++)
+	{
 		for(int j = 0; j < E; j++)
 		{
 			cache[i][j].valid_bit = 0;
 			cache[i][j].tag = cache[i][j].stamp = -1;
-		}//initialization
-	while(fgets(buffer,1000,fp))//get a whole line
+		}
+	}
+	
+	while(fgets(buffer,1000,fp))
 	{
-		sscanf(buffer," %c %xu,%d", &type, &address, &temp);//hexdecimal
+		sscanf(buffer,"%c %xu,%d",&type,&address,&temp); //读取数据
 		switch(type)
 		{
 			case 'L':update(address);
-					 break;
-			case 'M':update(address);//just let it fall through, do twice
+					break;
+			case 'M':update(address);
 			case 'S':update(address);
-					 break;
+					break;
 		}
 		update_time();
 	}
+	
+	//结束
 	for(int i = 0; i < S; i++)
-		free(cache[i]);//free allocated space first
+	{
+		free(cache[i]);
+	}
 	free(cache);
 	fclose(fp);
 	printSummary(number_hits, number_miss, number_eviction);
